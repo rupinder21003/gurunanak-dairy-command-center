@@ -46,7 +46,12 @@ _DEFAULTS = {"host": "127.0.0.1", "port": 3306, "user": "root", "password": "123
 
 
 def _read_secrets_file():
-    """Reads the [mysql] section of .streamlit/secrets.toml ourselves (so Streamlit never shows a 'No secrets' error)."""
+    """Reads [mysql] from st.secrets or .streamlit/secrets.toml if present."""
+    try:
+        if hasattr(st, "secrets") and "mysql" in st.secrets:
+            return dict(st.secrets["mysql"])
+    except Exception:  # noqa: BLE001
+        pass
     here = os.path.dirname(os.path.abspath(__file__))
     for base in (here, os.getcwd(), os.path.expanduser("~")):
         path = os.path.join(base, ".streamlit", "secrets.toml")
@@ -86,21 +91,29 @@ def get_pool():
     cfg = {"host": s["host"], "port": int(s["port"]), "user": s["user"], "password": s["password"]}
     if s.get("ssl_ca"):
         cfg.update(ssl_ca=s["ssl_ca"], ssl_verify_cert=True)
-    boot = mysql.connector.connect(**cfg)  # auto-create the database if it does not exist
     try:
-        cur = boot.cursor()
-        cur.execute(f"CREATE DATABASE IF NOT EXISTS {q(s['database'])}")
-        boot.commit()
-        cur.close()
-    finally:
-        boot.close()
-    return pooling.MySQLConnectionPool(pool_name="dairy_pool", pool_size=5, pool_reset_session=True,
-                                       database=s["database"], **cfg)
+        boot = mysql.connector.connect(connection_timeout=5, **cfg)  # auto-create the database if it does not exist
+        try:
+            cur = boot.cursor()
+            cur.execute(f"CREATE DATABASE IF NOT EXISTS {q(s['database'])}")
+            boot.commit()
+            cur.close()
+        finally:
+            boot.close()
+        return pooling.MySQLConnectionPool(
+            pool_name="dairy_pool", pool_size=5, pool_reset_session=True,
+            database=s["database"], **cfg
+        )
+    except Exception:  # noqa: BLE001
+        return None
 
 
 @contextmanager
 def get_conn():
-    conn = get_pool().get_connection()
+    pool = get_pool()
+    if pool is None:
+        raise ConnectionError("MySQL connection pool is unavailable.")
+    conn = pool.get_connection()
     try:
         conn.ping(reconnect=True, attempts=2, delay=1)  # health check on every checkout
         yield conn
@@ -125,11 +138,14 @@ def check_connection():
 
 def schema_ready():
     """Returns (ok, message)."""
-    with get_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("SHOW TABLES")
-        found = {str(r[0]).lower() for r in cur.fetchall()}
-        cur.close()
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SHOW TABLES")
+            found = {str(r[0]).lower() for r in cur.fetchall()}
+            cur.close()
+    except Exception as e:  # noqa: BLE001
+        return False, f"Database unreachable: {e}"
     missing = [t for t in (TABLE, TARGETS, "audit_logs") if t not in found]
     if missing:
         return False, f"Missing table(s): {', '.join(missing)}. Run schema.sql in MySQL Workbench."
