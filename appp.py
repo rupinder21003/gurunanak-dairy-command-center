@@ -593,7 +593,7 @@ def header(kicker, title, subtitle, health):
     db_tag = (
         f'<span class="pill-node">MySQL {health["version"].split("-")[0]} · {health["host"]}:{health["port"]}</span>'
         if health["ok"]
-        else '<span class="pill-node">MySQL Offline</span>'
+        else '<span class="pill-node">Preview Mode · Sample Data</span>'
     )
     st.markdown(
         f'<div class="studio-bar">'
@@ -658,6 +658,144 @@ def to_xlsx(df):
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
         df.to_excel(w, index=False, sheet_name="Export")
     return buf.getvalue()
+
+
+# ----------------------------------------------------------------- cloud preview fallback data
+def _sample_sales_df():
+    return pd.DataFrame([
+        {
+            "id": 101,
+            "Date": "01-Apr-2025",
+            "Day of Week": "Tuesday",
+            "Category": "Milk",
+            "Product": "Full Cream Milk",
+            "Customer Type": "Retail",
+            "Quantity Sold": 45,
+            "Unit": "Litre",
+            "Rate per Unit (Rs)": 62.0,
+            "Gross Revenue (Rs)": 2790.0,
+            "Discount (Rs)": 90.0,
+            "Net Revenue (Rs)": 2700.0,
+            "Cost of Goods (Rs)": 1850.0,
+            "Operating Cost (Rs)": 220.0,
+            "Net Profit (Rs)": 630.0,
+        },
+        {
+            "id": 102,
+            "Date": "02-Apr-2025",
+            "Day of Week": "Wednesday",
+            "Category": "Paneer",
+            "Product": "Fresh Malai Paneer",
+            "Customer Type": "Wholesale",
+            "Quantity Sold": 24,
+            "Unit": "Kg",
+            "Rate per Unit (Rs)": 360.0,
+            "Gross Revenue (Rs)": 8640.0,
+            "Discount (Rs)": 440.0,
+            "Net Revenue (Rs)": 8200.0,
+            "Cost of Goods (Rs)": 5400.0,
+            "Operating Cost (Rs)": 650.0,
+            "Net Profit (Rs)": 2150.0,
+        },
+        {
+            "id": 103,
+            "Date": "03-Apr-2025",
+            "Day of Week": "Thursday",
+            "Category": "Ghee",
+            "Product": "Desi Bilona Ghee",
+            "Customer Type": "Retail",
+            "Quantity Sold": 12,
+            "Unit": "Litre",
+            "Rate per Unit (Rs)": 780.0,
+            "Gross Revenue (Rs)": 9360.0,
+            "Discount (Rs)": 360.0,
+            "Net Revenue (Rs)": 9000.0,
+            "Cost of Goods (Rs)": 5900.0,
+            "Operating Cost (Rs)": 520.0,
+            "Net Profit (Rs)": 2580.0,
+        },
+        {
+            "id": 104,
+            "Date": "04-Apr-2025",
+            "Day of Week": "Friday",
+            "Category": "Curd",
+            "Product": "Farm Dahi Bowl",
+            "Customer Type": "Retail",
+            "Quantity Sold": 60,
+            "Unit": "Kg",
+            "Rate per Unit (Rs)": 75.0,
+            "Gross Revenue (Rs)": 4500.0,
+            "Discount (Rs)": 150.0,
+            "Net Revenue (Rs)": 4350.0,
+            "Cost of Goods (Rs)": 2700.0,
+            "Operating Cost (Rs)": 310.0,
+            "Net Profit (Rs)": 1340.0,
+        },
+        {
+            "id": 105,
+            "Date": "05-Apr-2025",
+            "Day of Week": "Saturday",
+            "Category": "Butter",
+            "Product": "White Makhan",
+            "Customer Type": "Wholesale",
+            "Quantity Sold": 18,
+            "Unit": "Kg",
+            "Rate per Unit (Rs)": 520.0,
+            "Gross Revenue (Rs)": 9360.0,
+            "Discount (Rs)": 360.0,
+            "Net Revenue (Rs)": 9000.0,
+            "Cost of Goods (Rs)": 6100.0,
+            "Operating Cost (Rs)": 540.0,
+            "Net Profit (Rs)": 2360.0,
+        },
+    ])
+
+
+def _render_preview_mode(health):
+    df = _sample_sales_df()
+    st.info(
+        f"Cloud preview mode is active because MySQL ({health['host']}:{health['port']}) is not reachable from Streamlit Cloud. "
+        "Sample dairy records are displayed below so you can view the full Velvet Studio interface."
+    )
+    net = float(df["Net Revenue (Rs)"].sum())
+    profit = float(df["Net Profit (Rs)"].sum())
+    r1 = st.columns(4)
+    kpi(r1[0], 1, "Net Revenue", f"Rs {net:,.0f}", "Sample preview", "◈")
+    kpi(r1[1], 2, "Net Profit", f"Rs {profit:,.0f}", "Sample preview", "✦")
+    kpi(r1[2], 3, "Profit Margin", f"{(profit / net * 100) if net else 0:.2f}%", "Net profit ÷ net revenue", "◎")
+    kpi(r1[3], 4, "Transactions", f"{len(df):,}", "Sample records", "❖")
+    st.write("")
+    cat = (
+        df.groupby("Category", as_index=False)
+        .agg(revenue=("Net Revenue (Rs)", "sum"), profit=("Net Profit (Rs)", "sum"))
+        .sort_values("revenue", ascending=False)
+    )
+    c1, c2 = st.columns(2)
+    m = cat.melt(id_vars="Category", value_vars=["revenue", "profit"], var_name="metric", value_name="Rs")
+    fig1 = px.bar(
+        m,
+        x="Category",
+        y="Rs",
+        color="metric",
+        barmode="group",
+        title="Category-wise Revenue & Profit (Sample)",
+        color_discrete_map={"revenue": IRIS, "profit": VIOLET},
+    )
+    fig1.update_layout(xaxis_title=None, yaxis_title="Rs", legend_title=None, **LAYOUT)
+    c1.plotly_chart(fig1, **FP)
+
+    fig2 = px.line(
+        df,
+        x="Date",
+        y=["Net Revenue (Rs)", "Net Profit (Rs)"],
+        markers=True,
+        color_discrete_map={"Net Revenue (Rs)": IRIS, "Net Profit (Rs)": VIOLET},
+        title=f"Daily Revenue & Profit Trend ({DATE_FMT})",
+    )
+    fig2.update_layout(xaxis_title=None, yaxis_title="Rs", legend_title=None, **LAYOUT)
+    c2.plotly_chart(fig2, **FP)
+
+    st.dataframe(normalize_dates_df(df), hide_index=True, **FD)
 
 
 def field(col, dtype, key, default=None, choices=None):
@@ -793,9 +931,8 @@ with st.sidebar:
     )
 
 if not health["ok"]:
-    header("TELEMETRY", "Connection Required", "Unable to reach MySQL server", health)
-    st.error(f"Cannot connect to MySQL: {health['error']}")
-    st.info("Check that the MySQL service is running, and that the password in db.py / secrets.toml is correct.")
+    header("PREVIEW", "Welcome back, Dairy Studio", "Cloud preview mode (MySQL offline in cloud container)", health)
+    _render_preview_mode(health)
     st.stop()
 
 try:
