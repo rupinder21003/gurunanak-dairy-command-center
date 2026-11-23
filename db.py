@@ -15,7 +15,7 @@ from mysql.connector import pooling
 
 TABLE = "gurunanak_dairy_data"
 TARGETS = "category_targets"
-CACHE_TTL = 4
+CACHE_TTL = 60
 
 # Column names exactly as used in your SQL script
 COL = {
